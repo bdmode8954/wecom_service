@@ -222,7 +222,7 @@ async def wecom_post(request: Request):
         append_ndjson({"type":"error","reason":"decrypt fail","remote_ip":getattr(getattr(request, 'client', None), 'host', '')})
         return "success"
 
-    # 解析 & 落日志
+    # 解析 & 落日志（只保留这一处，避免重复写 NDJSON）
     try:
         r = ET.fromstring(plain_xml)
         log_obj = {
@@ -240,26 +240,8 @@ async def wecom_post(request: Request):
 
     # DRY_RUN=1 时，直接 ACK；DRY_RUN=0 时你也可以在这里挂主动回复
 
-    # === NDJSON 轻量落盘（入站消息）===
-    try:
-        import xml.etree.ElementTree as ET
-        from ndjson_logger import append_ndjson
-        root = ET.fromstring(plain_xml)
-        log_obj = {
-            "from_user": root.findtext("FromUserName") or "",
-            "to_user":   root.findtext("ToUserName") or "",
-            "msg_type":  root.findtext("MsgType") or "",
-            "event":     root.findtext("Event") or "",
-            "content":   root.findtext("Content") or "",
-            "msg_id":    root.findtext("MsgId") or "",
-            "create_time": root.findtext("CreateTime") or "",
-            "raw_xml": (plain_xml.decode() if isinstance(plain_xml,(bytes,bytearray)) else str(plain_xml)),
-        }
-        append_ndjson(log_obj)
-    except Exception:
-        pass
-
     return "success"
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
@@ -360,21 +342,15 @@ async def message(request: Request):
     ret, plain_xml = _crypt().DecryptMsg(cipher_xml, sig, ts, nonce)
     if ret != 0 or plain_xml is None:
         raise HTTPException(403, "decrypt failed")
-    
-    # 轻量落盘（不影响主流程）
+
+    # 轻量落盘（只保留一处，避免重复写入）
     try:
         from services.wecom_webhook_service.hook_ndjson import log_plain_xml
         ip = getattr(getattr(request, "client", None), "host", "")
         log_plain_xml(plain_xml, ip)
     except Exception as _e:
         print("hook err:", _e)
-    # 轻量落盘（不影响主流程）
-    try:
-        from services.wecom_webhook_service.hook_ndjson import log_plain_xml
-        ip = getattr(getattr(request, "client", None), "host", "")
-        log_plain_xml(plain_xml, ip)
-    except Exception as _e:
-        print("hook err:", _e)
+
     if WECOM_DRY_RUN:
         return "success"
 
