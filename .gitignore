@@ -57,3 +57,11 @@ Thumbs.db
 
 app/**/requirements.txt
 
+# ==============================
+# External services (NOT in repo)
+# ==============================
+
+deploy/nginx/benjusi.online.conf
+deploy/systemd/crm.service
+deploy/systemd/scoring.service
+
