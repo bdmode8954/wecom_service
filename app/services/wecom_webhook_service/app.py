@@ -64,7 +64,12 @@ def _post_with_brain(url, *args, **kwargs):
         print({"tag":"brain_wrap","ok":False,"err":str(e)})
     return _orig_post(url, *args, **kwargs)
 
-requests.post = _post_with_brain
+BRAIN_ENABLED = os.getenv("BRAIN_ENABLED", "0") in ("1", "true", "True", "yes", "on")
+if BRAIN_ENABLED:
+    requests.post = _post_with_brain
+else:
+    print({"tag":"brain_inject","enabled":False})
+
 # ==== /BRAIN AUTO-INJECT ====
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse, JSONResponse
