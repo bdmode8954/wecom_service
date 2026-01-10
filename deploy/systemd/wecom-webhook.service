@@ -1,0 +1,16 @@
+[Unit]
+Description=WeCom Webhook Receiver (Uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/wecom/current
+EnvironmentFile=/srv/wecom/shared/.env.wecom
+ExecStart=/srv/wecom/venv/bin/uvicorn services.wecom_webhook_service.app:app --host 127.0.0.1 --port 8012 --timeout-keep-alive 5 --loop asyncio --http h11 --ws none
+Restart=always
+RestartSec=2
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

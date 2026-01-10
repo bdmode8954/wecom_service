@@ -1,0 +1,95 @@
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import PlainTextResponse
+from dotenv import load_dotenv
+import os, requests, xml.etree.ElementTree as ET
+
+# 载入 env（根目录）
+load_dotenv(".env.wecom")
+load_dotenv(".env.doubao")
+
+WECOM_DRY_RUN = os.getenv("WECOM_DRY_RUN", "0") in ("1","true","True")
+WECOM_CORP_ID      = os.getenv("WECOM_CORP_ID","")
+WECOM_AGENT_ID     = os.getenv("WECOM_AGENT_ID","")
+WECOM_AGENT_SECRET = os.getenv("WECOM_AGENT_SECRET","")
+WECOM_TOKEN        = os.getenv("WECOM_TOKEN","")
+WECOM_AES_KEY      = os.getenv("WECOM_AES_KEY","")
+
+from services.wecom_webhook_service.wxbizmsgcrypt import WXBizMsgCrypt
+from services.shared.doubao import chat
+
+app = FastAPI(title="WeCom Webhook + Doubao", version="1.0.0")
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+def _crypt():
+    if not (WECOM_TOKEN and WECOM_AES_KEY and WECOM_CORP_ID):
+        raise HTTPException(500, "WeCom TOKEN/AES/CORP_ID not set; fill .env.wecom before URL verify.")
+    return WXBizMsgCrypt(WECOM_TOKEN, WECOM_AES_KEY, WECOM_CORP_ID)
+
+def _get_access_token():
+    url = f"https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid={WECOM_CORP_ID}&corpsecret={WECOM_AGENT_SECRET}"
+    r = requests.get(url, timeout=8)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("errcode") != 0:
+        raise RuntimeError(f"gettoken failed: {data}")
+    return data["access_token"]
+
+def _send_text(to_user: str, content: str):
+    token = _get_access_token()
+    url = f"https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={token}"
+    payload = {
+        "touser": to_user,
+        "msgtype": "text",
+        "agentid": int(WECOM_AGENT_ID or "0"),
+        "text": {"content": content[:2000]},
+        "safe": 0
+    }
+    r = requests.post(url, json=payload, timeout=8)
+    r.raise_for_status()
+    return r.json()
+
+@app.get("/wecom/webhook", response_class=PlainTextResponse)
+async def verify(msg_signature: str, timestamp: str, nonce: str, echostr: str):
+    ret, echo = _crypt().VerifyURL(msg_signature, timestamp, nonce, echostr)
+    if ret != 0 or echo is None:
+        raise HTTPException(403, "verify failed")
+    return echo
+
+@app.post("/wecom/webhook", response_class=PlainTextResponse)
+async def message(request: Request):
+    sig   = request.query_params.get("msg_signature", "")
+    ts    = request.query_params.get("timestamp", "")
+    nonce = request.query_params.get("nonce", "")
+    cipher_xml = await request.body()
+
+    ret, plain_xml = _crypt().DecryptMsg(cipher_xml, sig, ts, nonce)
+    if ret != 0 or plain_xml is None:
+        raise HTTPException(403, "decrypt failed")
+    
+    if WECOM_DRY_RUN:
+        return "success"
+
+    root = ET.fromstring(plain_xml)
+    msg_type  = root.findtext("MsgType") or ""
+    from_user = root.findtext("FromUserName") or ""
+
+    reply = None
+    if msg_type == "text":
+        content = root.findtext("Content") or ""
+        system = {"role":"system","content":"你是美业门店AI助手。给1句中文私信回复，友好克制，禁止夸大疗效。必要时提醒过敏测试和防晒。不超过60字。"}
+        user   = {"role":"user","content":f"客户说：{content}"}
+        try:
+            reply = chat([system, user])[:200]
+        except Exception:
+            reply = "好的～我这边为您核对后尽快回复。"
+
+    if reply:
+        try:
+            _send_text(from_user, reply)
+        except Exception:
+            pass  # 不影响我们返回 success
+
+    return "success"
