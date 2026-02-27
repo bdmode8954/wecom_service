@@ -75,6 +75,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse, JSONResponse
 import os, base64, hashlib, struct, xml.etree.ElementTree as ET
 import os, requests, time
+import subprocess
 
 from dotenv import load_dotenv
 
@@ -125,6 +126,20 @@ def append_ndjson(row: dict):
             import json; f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception as e:
         print("ndjson error:", e)
+
+RELAY_TO_LOCAL = os.getenv("RELAY_TO_LOCAL", "0") in ("1","true","True","yes","on")
+RELAY_SCRIPT = os.getenv("RELAY_SCRIPT", "/home/ops/wecom_relay/forward.sh")
+
+def relay_to_local(text: str):
+    if not RELAY_TO_LOCAL:
+        return
+    text = (text or "").strip()
+    if not text:
+        return
+    try:
+        subprocess.Popen([RELAY_SCRIPT, text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print("relay_to_local error:", e)
 
 def _b64key(aes43: str) -> bytes:
     # 企业微信 AESKey 是 43 位 base64，需补 '=' 再 decode 成 32 字节 key
@@ -235,6 +250,7 @@ async def wecom_post(request: Request):
             "remote_ip": getattr(getattr(request, "client", None), "host", ""),
         }
         append_ndjson(log_obj)
+        relay_to_local(log_obj.get("content",""))
     except Exception as e:
         append_ndjson({"type":"error","reason":f"parse fail: {e}"})
 
