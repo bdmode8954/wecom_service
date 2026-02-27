@@ -377,17 +377,18 @@ async def message(request: Request):
     reply = None
     if msg_type == "text":
         content = root.findtext("Content") or ""
-        system = {"role":"system","content":"你是美业门店AI助手。给1句中文私信回复，友好克制，禁止夸大疗效。必要时提醒过敏测试和防晒。不超过60字。"}
-        user   = {"role":"user","content":f"客户说：{content}"}
-        try:
-            reply = chat([system, user])[:200]
-        except Exception:
-            reply = "好的～我这边为您核对后尽快回复。"
+        relay_to_local(content)
+        # system = {"role":"system","content":"你是美业门店AI助手。给1句中文私信回复，友好克制，禁止夸大疗效。必要时提醒过敏测试和防晒。不超过60字。"}
+        # user   = {"role":"user","content":f"客户说：{content}"}
+        # try:
+        #     reply = chat([system, user])[:200]
+        # except Exception:
+        #     reply = "好的～我这边为您核对后尽快回复。"
 
-    if reply:
-        try:
-            _send_text(from_user, reply)
-        except Exception:
-            pass  # 不影响我们返回 success
+    # if reply:
+    #     try:
+    #         _send_text(from_user, reply)
+    #     except Exception:
+    #         pass  # 不影响我们返回 success
 
-    return "success"
+    return PlainTextResponse("success")
