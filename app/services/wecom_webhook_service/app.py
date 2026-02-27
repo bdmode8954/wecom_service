@@ -128,9 +128,17 @@ async def wecom_post(request: Request):
 
     try:
         r = ET.fromstring(plain_xml)
-        content = r.findtext("Content") or ""
-        relay_to_local(content)
-    except Exception:
-        pass
+        msg_type = (r.findtext("MsgType") or "").strip()
+        content = (r.findtext("Content") or "").strip()
+
+        # 关键：无论是否 text，都转发一条可见内容，避免 content 为空导致不写入
+        if content:
+            relay_to_local(content)
+        else:
+            # 兜底：把解密后的 XML 原文转发出去，方便我们确认真实类型/字段
+            relay_to_local(f"[{msg_type or 'unknown'}] " + plain_xml.decode("utf-8", errors="ignore"))
+    except Exception as e:
+        # 兜底：解析失败也转发错误，别吞
+        relay_to_local(f"[parse_error] {e}")
 
     return PlainTextResponse("success")
